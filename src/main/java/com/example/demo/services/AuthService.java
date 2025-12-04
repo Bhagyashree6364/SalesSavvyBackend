@@ -1,11 +1,16 @@
 package com.example.demo.services;
 
-import com.example.demo.entities.*;
-import com.example.demo.repositories.UserRepository;
+import com.example.demo.entities.JWTToken;
+import com.example.demo.entities.User;
 import com.example.demo.repositories.JWTTokenRepository;
+import com.example.demo.repositories.UserRepository;
+import io.jsonwebtoken.Claims;
+import io.jsonwebtoken.ExpiredJwtException;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.SignatureAlgorithm;
 import io.jsonwebtoken.security.Keys;
+import jakarta.servlet.http.Cookie;
+import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
@@ -15,6 +20,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.Key;
 import java.time.LocalDateTime;
 import java.util.Date;
+import java.util.Optional;
 
 @Service
 public class AuthService {
@@ -39,6 +45,8 @@ public class AuthService {
         }
         this.SIGNING_KEY = Keys.hmacShaKeyFor(jwtSecret.getBytes(StandardCharsets.UTF_8));
     }
+
+    // -------- Authentication and token creation --------
 
     public User authenticate(String username, String password) {
         User user = userRepository.findByUsername(username)
@@ -69,7 +77,7 @@ public class AuthService {
 
     private String generateNewToken(User user) {
         Date now = new Date();
-        Date expiry = new Date(System.currentTimeMillis() + 3600_000L);
+        Date expiry = new Date(System.currentTimeMillis() + 3600_000L); // 1 hour
 
         return Jwts.builder()
                 .setSubject(user.getUsername())
@@ -83,5 +91,64 @@ public class AuthService {
     public void saveToken(User user, String token) {
         JWTToken jwtToken = new JWTToken(user, token, LocalDateTime.now().plusHours(1));
         jwtTokenRepository.save(jwtToken);
+    }
+
+    // -------- Methods used by AuthenticationFilter / controllers --------
+
+    /** Validate signature + expiration and check token exists in DB */
+    public boolean validateToken(String token) {
+        try {
+            Claims claims = Jwts.parserBuilder()
+                    .setSigningKey(SIGNING_KEY)
+                    .build()
+                    .parseClaimsJws(token)
+                    .getBody();
+
+            String username = claims.getSubject();
+            Date expiration = claims.getExpiration();
+            if (username == null || expiration == null || expiration.before(new Date())) {
+                return false;
+            }
+
+            Optional<User> userOpt = userRepository.findByUsername(username);
+            if (userOpt.isEmpty()) {
+                return false;
+            }
+
+            JWTToken stored = jwtTokenRepository.findByUserId(userOpt.get().getId());
+            return stored != null && token.equals(stored.getToken());
+        } catch (ExpiredJwtException e) {
+            return false;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    /** Extract username (subject) from JWT token */
+    public String extractUsername(String token) {
+        try {
+            Claims claims = Jwts.parserBuilder()
+                    .setSigningKey(SIGNING_KEY)
+                    .build()
+                    .parseClaimsJws(token)
+                    .getBody();
+            return claims.getSubject();
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /** Read JWT from authToken cookie */
+    public String getAuthTokenFromCookies(HttpServletRequest request) {
+        Cookie[] cookies = request.getCookies();
+        if (cookies == null) {
+            return null;
+        }
+        for (Cookie cookie : cookies) {
+            if ("authToken".equals(cookie.getName())) { // must match cookie name set in login
+                return cookie.getValue();
+            }
+        }
+        return null;
     }
 }
