@@ -4,6 +4,7 @@ import com.example.demo.dto.LoginRequest;
 import com.example.demo.entities.User;
 import com.example.demo.services.AuthService;
 import jakarta.servlet.http.Cookie;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
@@ -37,12 +38,12 @@ public class AuthController {
             // Generate JWT token
             String token = authService.generateToken(user);
 
-            // Optional: also set as HttpOnly cookie
+            // Set JWT as HttpOnly cookie
             Cookie cookie = new Cookie("authToken", token);
             cookie.setHttpOnly(true);
-            cookie.setSecure(false); // true if using HTTPS
+            cookie.setSecure(false); // set true in production with HTTPS
             cookie.setPath("/");
-            cookie.setMaxAge(3600);
+            cookie.setMaxAge(3600); // 1 hour
             response.addCookie(cookie);
 
             // Return token + role + username in JSON body
@@ -58,4 +59,32 @@ public class AuthController {
                     .body(Map.of("message", ex.getMessage()));
         }
     }
+
+    @PostMapping("/logout")
+    public ResponseEntity<?> logout(HttpServletRequest request,
+                                    HttpServletResponse response) {
+        try {
+            // Get authenticated user from AuthenticationFilter (may be null if not set)
+            User user = (User) request.getAttribute("authenticatedUser");
+
+            // Optional: invalidate token(s) in DB if you store them
+            authService.logout(user);
+
+            // Clear authToken cookie
+            Cookie cookie = new Cookie("authToken", null);
+            cookie.setPath("/");
+            cookie.setHttpOnly(true);
+            cookie.setMaxAge(0);
+            response.addCookie(cookie);
+
+            Map<String, Object> body = new HashMap<>();
+            body.put("message", "Logout successful");
+            return ResponseEntity.ok(body);
+        } catch (Exception e) {
+            Map<String, Object> body = new HashMap<>();
+            body.put("message", "Logout failed");
+            return ResponseEntity.status(500).body(body);
+        }
+    }
 }
+

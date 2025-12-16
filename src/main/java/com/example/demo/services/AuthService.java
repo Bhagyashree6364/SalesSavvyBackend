@@ -151,4 +151,8 @@ public class AuthService {
         }
         return null;
     }
+    public void logout(User user) {
+        // If you don’t store tokens in DB, you can leave this empty for now.
+        // Later you can add DB token deletion here.
+    }
 }
