@@ -1,13 +1,9 @@
 package com.example.demo.filters;
 
-import java.util.Optional;
-import com.example.demo.entities.User;
-import com.example.demo.repositories.JWTTokenRepository;
-import com.example.demo.controllers.ProductController;
 import com.example.demo.entities.Role;
+import com.example.demo.entities.User;
 import com.example.demo.repositories.UserRepository;
 import com.example.demo.services.AuthService;
-import com.example.demo.services.ProductService;
 import jakarta.servlet.*;
 import jakarta.servlet.annotation.WebFilter;
 import jakarta.servlet.http.Cookie;
@@ -15,21 +11,20 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.GrantedAuthority;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
 import java.util.Arrays;
-
+import java.util.List;
+import java.util.Optional;
 
 @WebFilter(urlPatterns = {"/api/*", "/admin/*"})
 @Component
 public class AuthenticationFilter implements Filter {
-
-    private final JWTTokenRepository JWTTokenRepository;
-
-    private final ProductController productController;
-
-    private final ProductService productService;
 
     private static final Logger logger =
             LoggerFactory.getLogger(AuthenticationFilter.class);
@@ -38,20 +33,18 @@ public class AuthenticationFilter implements Filter {
 
     private static final String[] UNAUTHENTICATED_PATHS = {
             "/api/users/register",
-            "/api/auth/login"
+            "/api/auth/login",
+            "/error"
     };
 
     private final AuthService authService;
     private final UserRepository userRepository;
 
     public AuthenticationFilter(AuthService authService,
-                                UserRepository userRepository, ProductService productService, ProductController productController, JWTTokenRepository JWTTokenRepository) {
+                                UserRepository userRepository) {
         System.out.println("AuthenticationFilter started");
         this.authService = authService;
         this.userRepository = userRepository;
-        this.productService = productService;
-        this.productController = productController;
-        this.JWTTokenRepository = JWTTokenRepository;
     }
 
     @Override
@@ -81,6 +74,7 @@ public class AuthenticationFilter implements Filter {
 
         // 1. Allow unauthenticated paths
         if (Arrays.asList(UNAUTHENTICATED_PATHS).contains(requestURI)) {
+            setCORSHeaders(httpResponse);
             chain.doFilter(request, response);
             return;
         }
@@ -91,9 +85,13 @@ public class AuthenticationFilter implements Filter {
             return;
         }
 
-        // 3. Extract and validate token
-        String token = getAuthTokenFromCookies(httpRequest);
-        System.out.println("Token from cookie: " + token);
+        // 3. Extract token from Authorization header OR cookie
+        String token = getTokenFromAuthorizationHeader(httpRequest);
+        if (token == null) {
+            token = getAuthTokenFromCookies(httpRequest);
+        }
+
+        logger.info("Token found: {}", token != null);
 
         if (token == null || !authService.validateToken(token)) {
             sendErrorResponse(httpResponse,
@@ -118,23 +116,37 @@ public class AuthenticationFilter implements Filter {
         Role role = authenticatedUser.getRole();
         logger.info("Authenticated user: {}, role: {}", authenticatedUser.getUsername(), role);
 
-        // 6. Role-based access
-        if (requestURI.startsWith("/admin/") && role != Role.ADMIN) {
-            sendErrorResponse(httpResponse,
-                    HttpServletResponse.SC_FORBIDDEN,
-                    "Forbidden: Admin access required");
-            return;
+        // 6. Build Spring Security Authentication with authorities
+        //    Authority string must match what you use in hasAnyAuthority(...)
+        List<GrantedAuthority> authorities =
+                List.of(new SimpleGrantedAuthority(role.name())); // "CUSTOMER" or "ADMIN"
+
+        UsernamePasswordAuthenticationToken authentication =
+                new UsernamePasswordAuthenticationToken(
+                        authenticatedUser, // principal
+                        null,              // no credentials
+                        authorities
+                );
+
+        SecurityContextHolder.getContext().setAuthentication(authentication);
+
+        // 7. Role-based access for /admin URLs (optional; Spring rules can also handle this)
+        logger.info("URI: {} , role: {}", requestURI, role);
+
+        if (requestURI.startsWith("/admin/") || requestURI.startsWith("/api/admin")) {
+            logger.info("Admin URL hit");
+            if (role != Role.ADMIN) {
+                logger.warn("Blocking request: non-admin trying to access admin URL");
+                sendErrorResponse(httpResponse,
+                        HttpServletResponse.SC_FORBIDDEN,
+                        "Forbidden: Admin access required");
+                return;
+            }
+        } else {
+            logger.info("Non-admin URL, allowing for role {}", role);
         }
 
-        if (requestURI.startsWith("/api/") && role == Role.CUSTOMER && requestURI.startsWith("/admin/")) {
-            // extra guard in case admin APIs are under /api/admin
-            sendErrorResponse(httpResponse,
-                    HttpServletResponse.SC_FORBIDDEN,
-                    "Forbidden: Customer access required");
-            return;
-        }
-
-        // 7. Attach user to request for controllers (e.g., ProductController)
+        // 8. Attach user to request for controllers
         httpRequest.setAttribute("authenticatedUser", authenticatedUser);
 
         setCORSHeaders(httpResponse);
@@ -165,6 +177,14 @@ public class AuthenticationFilter implements Filter {
                     .map(Cookie::getValue)
                     .findFirst()
                     .orElse(null);
+        }
+        return null;
+    }
+
+    private String getTokenFromAuthorizationHeader(HttpServletRequest request) {
+        String authHeader = request.getHeader("Authorization");
+        if (authHeader != null && authHeader.startsWith("Bearer ")) {
+            return authHeader.substring(7);
         }
         return null;
     }

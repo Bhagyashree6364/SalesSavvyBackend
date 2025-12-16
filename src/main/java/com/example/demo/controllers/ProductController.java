@@ -25,7 +25,6 @@ public class ProductController {
             @RequestParam(required = false) String category,
             HttpServletRequest request) {
 
-        // AuthenticationFilter must have set this attribute
         User authenticatedUser = (User) request.getAttribute("authenticatedUser");
         if (authenticatedUser == null) {
             return ResponseEntity
@@ -35,12 +34,12 @@ public class ProductController {
 
         List<Product> products = productService.getProductsByCategory(category);
 
-        Map<String, String> userInfo = new HashMap<>();
-        userInfo.put("name", authenticatedUser.getUsername());
-        userInfo.put("role", authenticatedUser.getRole().name());
+        Map<String, String> userInfo = Map.of(
+                "name", authenticatedUser.getUsername(),
+                "role", authenticatedUser.getRole().name()
+        );
 
         List<Map<String, Object>> productList = new ArrayList<>();
-
         for (Product product : products) {
             Map<String, Object> details = new HashMap<>();
             details.put("product_id", product.getProductId());
@@ -48,10 +47,7 @@ public class ProductController {
             details.put("description", product.getDescription());
             details.put("price", product.getPrice());
             details.put("stock", product.getStock());
-
-            List<String> images = productService.getProductImages(product.getProductId());
-            details.put("images", images);
-
+            details.put("images", productService.getProductImages(product.getProductId()));
             productList.add(details);
         }
 

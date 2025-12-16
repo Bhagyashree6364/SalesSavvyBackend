@@ -1,7 +1,7 @@
 package com.example.demo.controllers;
 
 import com.example.demo.dto.LoginRequest;
-import com.example.demo.entities.*;
+import com.example.demo.entities.User;
 import com.example.demo.services.AuthService;
 import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletResponse;
@@ -33,17 +33,22 @@ public class AuthController {
                     loginRequest.getUsername(),
                     loginRequest.getPassword()
             );
+
+            // Generate JWT token
             String token = authService.generateToken(user);
 
+            // Optional: also set as HttpOnly cookie
             Cookie cookie = new Cookie("authToken", token);
             cookie.setHttpOnly(true);
-            cookie.setSecure(false);
+            cookie.setSecure(false); // true if using HTTPS
             cookie.setPath("/");
             cookie.setMaxAge(3600);
             response.addCookie(cookie);
 
+            // Return token + role + username in JSON body
             Map<String, Object> body = new HashMap<>();
             body.put("message", "Login successful");
+            body.put("token", token);
             body.put("username", user.getUsername());
             body.put("role", user.getRole().name());
 
@@ -54,4 +59,3 @@ public class AuthController {
         }
     }
 }
-
