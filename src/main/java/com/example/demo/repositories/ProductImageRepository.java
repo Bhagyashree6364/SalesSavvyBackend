@@ -7,5 +7,7 @@ import java.util.List;
 
 public interface ProductImageRepository extends JpaRepository<ProductImage, Integer> {
 
-    List<ProductImage> findByProduct_ProductId(Integer productId);
+    List<ProductImage> findByProductProductId(Integer productId);
+
+    void deleteByProductProductId(Integer productId);
 }

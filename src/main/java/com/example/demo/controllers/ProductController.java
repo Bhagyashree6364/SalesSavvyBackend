@@ -20,12 +20,19 @@ public class ProductController {
         this.productService = productService;
     }
 
+    // Common method to read authenticated user from filter
+    private User getAuthenticatedUser(HttpServletRequest request) {
+        return (User) request.getAttribute("authenticatedUser");
+    }
+
+    /* =============== PUBLIC / CUSTOMER APIs =============== */
+
     @GetMapping
     public ResponseEntity<Map<String, Object>> getProducts(
             @RequestParam(required = false) String category,
             HttpServletRequest request) {
 
-        User authenticatedUser = (User) request.getAttribute("authenticatedUser");
+        User authenticatedUser = getAuthenticatedUser(request);
         if (authenticatedUser == null) {
             return ResponseEntity
                     .status(401)
@@ -56,5 +63,49 @@ public class ProductController {
         response.put("products", productList);
 
         return ResponseEntity.ok(response);
+    }
+
+    /* =============== ADMIN PRODUCT MANAGEMENT APIs =============== */
+
+    // Add new product (used by admin dashboard)
+    @PostMapping("/admin/add")
+    public ResponseEntity<?> addProduct(@RequestBody Product product, HttpServletRequest request) {
+        User authenticatedUser = getAuthenticatedUser(request);
+        if (authenticatedUser == null || authenticatedUser.getRole() == null
+                || !"ADMIN".equals(authenticatedUser.getRole().name())) {
+            return ResponseEntity.status(403).body(Map.of("error", "Access denied"));
+        }
+
+        Product saved = productService.addProduct(product);
+        return ResponseEntity.ok(saved);
+    }
+
+    // Delete product by id
+    @DeleteMapping("/admin/{id}")
+    public ResponseEntity<?> deleteProduct(@PathVariable("id") Integer id, HttpServletRequest request) {
+        User authenticatedUser = getAuthenticatedUser(request);
+        if (authenticatedUser == null || authenticatedUser.getRole() == null
+                || !"ADMIN".equals(authenticatedUser.getRole().name())) {
+            return ResponseEntity.status(403).body(Map.of("error", "Access denied"));
+        }
+
+        productService.deleteProduct(id);
+        return ResponseEntity.noContent().build();
+    }
+
+    // Optional: get single product details for admin edit/view
+    @GetMapping("/admin/{id}")
+    public ResponseEntity<?> getProductById(@PathVariable("id") Integer id, HttpServletRequest request) {
+        User authenticatedUser = getAuthenticatedUser(request);
+        if (authenticatedUser == null || authenticatedUser.getRole() == null
+                || !"ADMIN".equals(authenticatedUser.getRole().name())) {
+            return ResponseEntity.status(403).body(Map.of("error", "Access denied"));
+        }
+
+        Product product = productService.getProductById(id);
+        if (product == null) {
+            return ResponseEntity.status(404).body(Map.of("error", "Product not found"));
+        }
+        return ResponseEntity.ok(product);
     }
 }

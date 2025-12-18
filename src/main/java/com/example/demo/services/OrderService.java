@@ -9,7 +9,11 @@ import com.example.demo.repositories.OrderRepository;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.time.Year;
+import java.time.YearMonth;
 import java.util.List;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 @Service
@@ -21,53 +25,90 @@ public class OrderService {
         this.orderRepository = orderRepository;
     }
 
-    // userId is Integer on Order
+    // For customer order history
     public List<OrderResponse> getOrdersForCustomer(Integer customerId) {
-
         List<Order> orders =
                 orderRepository.findByUserIdAndStatus(customerId, OrderStatus.SUCCESS);
 
-        return orders.stream().map(order -> {
-            OrderResponse resp = new OrderResponse();
+        return orders.stream()
+                .map(this::mapOrderToResponse)
+                .collect(Collectors.toList());
+    }
 
-            // DTO expects Long, entity has String → cannot convert safely
-            // So treat orderId in DTO also as String: change DTO OR cast here.
-            // Easiest now: use null for numeric id and send string in status/msg if needed.
-            // If you want real value, change DTO.orderId type to String.
-            resp.setOrderId(null); // because entity id is String
+    private OrderResponse mapOrderToResponse(Order order) {
+        OrderResponse resp = new OrderResponse();
 
-            resp.setOrderDate(order.getCreatedAt());
-            resp.setStatus(order.getStatus().name());
+        // If your Order.id is String, change DTO field type to String and use setOrderId(order.getId()).
+        // Here kept as null assuming DTO has Long.
+        resp.setOrderId(null);
 
-            BigDecimal total = order.getTotalAmount();
-            resp.setTotalAmount(total != null ? total.doubleValue() : 0.0);
+        resp.setOrderDate(order.getCreatedAt());
+        resp.setStatus(order.getStatus().name());
 
-            List<OrderItemResponse> itemResponses = order.getOrderItems().stream()
-                    .map(this::mapItemToResponse)
-                    .collect(Collectors.toList());
+        BigDecimal total = order.getTotalAmount();
+        resp.setTotalAmount(total != null ? total.doubleValue() : 0.0);
 
-            resp.setItems(itemResponses);
-            return resp;
-        }).collect(Collectors.toList());
+        List<OrderItemResponse> itemResponses = order.getOrderItems().stream()
+                .map(this::mapItemToResponse)
+                .collect(Collectors.toList());
+
+        resp.setItems(itemResponses);
+        return resp;
     }
 
     private OrderItemResponse mapItemToResponse(OrderItem item) {
         OrderItemResponse ir = new OrderItemResponse();
 
-        // OrderItem.productId is Integer, DTO expects Long
         Integer pid = item.getProductId();
         ir.setProductId(pid != null ? pid.longValue() : null);
 
-        // You do not have productName or image in OrderItem, so keep them null
-        ir.setProductName(null);
+        ir.setProductName(null);          // no product name in OrderItem entity
+        ir.setImageUrl(null);             // no image url in OrderItem entity
 
         ir.setQuantity(item.getQuantity() != null ? item.getQuantity() : 0);
 
         BigDecimal ppu = item.getPricePerUnit();
         ir.setPricePerUnit(ppu != null ? ppu.doubleValue() : 0.0);
 
-        ir.setImageUrl(null);
-
         return ir;
+    }
+
+    /* ========= ADMIN ANALYTICS METHODS ========= */
+
+    public BigDecimal calculateTotalForDate(LocalDate date) {
+        Optional<BigDecimal> opt = orderRepository.sumTotalByDate(date);
+        return opt.orElse(BigDecimal.ZERO);
+    }
+
+    public long countOrdersForDate(LocalDate date) {
+        return orderRepository.countByOrderDate(date);
+    }
+
+    public BigDecimal calculateTotalForMonth(YearMonth ym) {
+        Optional<BigDecimal> opt =
+                orderRepository.sumTotalByMonth(ym.getYear(), ym.getMonthValue());
+        return opt.orElse(BigDecimal.ZERO);
+    }
+
+    public long countOrdersForMonth(YearMonth ym) {
+        return orderRepository.countByMonth(ym.getYear(), ym.getMonthValue());
+    }
+
+    public BigDecimal calculateTotalForYear(Year year) {
+        Optional<BigDecimal> opt = orderRepository.sumTotalByYear(year.getValue());
+        return opt.orElse(BigDecimal.ZERO);
+    }
+
+    public long countOrdersForYear(Year year) {
+        return orderRepository.countByYear(year.getValue());
+    }
+
+    public BigDecimal calculateTotalOverall() {
+        Optional<BigDecimal> opt = orderRepository.sumTotalOverall();
+        return opt.orElse(BigDecimal.ZERO);
+    }
+
+    public long countOrdersOverall() {
+        return orderRepository.count();
     }
 }

@@ -1,54 +1,61 @@
 package com.example.demo.services;
 
-import com.example.demo.entities.Category;
 import com.example.demo.entities.Product;
 import com.example.demo.entities.ProductImage;
-import com.example.demo.repositories.CategoryRepository;
 import com.example.demo.repositories.ProductImageRepository;
 import com.example.demo.repositories.ProductRepository;
 import org.springframework.stereotype.Service;
 
-import java.util.ArrayList;
 import java.util.List;
-import java.util.Optional;
 
 @Service
 public class ProductService {
 
     private final ProductRepository productRepository;
     private final ProductImageRepository productImageRepository;
-    private final CategoryRepository categoryRepository;
 
     public ProductService(ProductRepository productRepository,
-                          ProductImageRepository productImageRepository,
-                          CategoryRepository categoryRepository) {
+                          ProductImageRepository productImageRepository) {
         this.productRepository = productRepository;
         this.productImageRepository = productImageRepository;
-        this.categoryRepository = categoryRepository;
     }
 
-    public List<Product> getProductsByCategory(String categoryName) {
-        if (categoryName == null || categoryName.trim().isEmpty()) {
+    /* ===== existing customer methods ===== */
+
+    public List<Product> getProductsByCategory(String category) {
+        if (category == null || category.isBlank()) {
             return productRepository.findAll();
         }
-
-        Optional<Category> categoryOpt = categoryRepository.findByCategoryName(categoryName);
-        if (categoryOpt.isEmpty()) {
-            throw new RuntimeException("Category not found: " + categoryName);
-        }
-
-        Integer categoryId = categoryOpt.get().getCategoryId();
-        return productRepository.findByCategory_CategoryId(categoryId);
+        return productRepository.findByCategoryName(category);
     }
 
     public List<String> getProductImages(Integer productId) {
-        List<ProductImage> productImages =
-                productImageRepository.findByProduct_ProductId(productId);
+        List<ProductImage> images = productImageRepository.findByProductProductId(productId);
+        return images.stream()
+                .map(ProductImage::getImageUrl)
+                .toList();
+    }
 
-        List<String> urls = new ArrayList<>();
-        for (ProductImage img : productImages) {
-            urls.add(img.getImageUrl());
+    /* ===== ADMIN METHODS used in ProductController ===== */
+
+    // create / add product
+    public Product addProduct(Product product) {
+        // if id is auto-increment in DB, ensure incoming id is null
+        product.setProductId(null);
+        return productRepository.save(product);
+    }
+
+    // delete product
+    public void deleteProduct(Integer id) {
+        if (productRepository.existsById(id)) {
+            // also delete images if you want cascade manually
+            productImageRepository.deleteByProductProductId(id);
+            productRepository.deleteById(id);
         }
-        return urls;
+    }
+
+    // get single product
+    public Product getProductById(Integer id) {
+        return productRepository.findById(id).orElse(null);
     }
 }
